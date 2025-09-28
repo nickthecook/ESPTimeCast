@@ -1096,9 +1096,15 @@ void handleCaptivePortal(AsyncWebServerRequest *request) {
   request->redirect(String("http://") + WiFi.softAPIP().toString() + "/");
 }
 
-char getWeatherIcon(String weatherMain) {
+char getWeatherIcon(String weatherMain, String detailedDesc) {
   // Map OpenWeatherMap "main" conditions to font icons
   weatherMain.toLowerCase();
+  detailedDesc.toLowerCase();
+
+  // Check detailed description first for special cases
+  if (detailedDesc == "few clouds") {
+    return WEATHER_ICON_CLEAR;  // "few clouds" is basically sunny
+  }
 
   if (weatherMain == "clear") {
     return WEATHER_ICON_CLEAR;
@@ -1486,7 +1492,7 @@ void advanceDisplayMode() {
       displayMode = 1;
       Serial.println(F("[DISPLAY] Switching to display mode: WEATHER (from Clock)"));
       // Log which weather icon will be displayed
-      char weatherIcon = getWeatherIcon(mainDesc);
+      char weatherIcon = getWeatherIcon(mainDesc, detailedDesc);
       Serial.printf("[WEATHER] Icon: %s (char %d) for condition: %s\n", getWeatherIconName(weatherIcon), (int)weatherIcon, mainDesc.c_str());
     } else if (countdownEnabled && !countdownFinished && ntpSyncSuccessful && countdownTargetTimestamp > 0 && countdownTargetTimestamp > time(nullptr)) {
       displayMode = 3;
@@ -1503,7 +1509,7 @@ void advanceDisplayMode() {
       displayMode = 1;
       Serial.println(F("[DISPLAY] Switching to display mode: WEATHER (from Date)"));
       // Log which weather icon will be displayed
-      char weatherIcon = getWeatherIcon(mainDesc);
+      char weatherIcon = getWeatherIcon(mainDesc, detailedDesc);
       Serial.printf("[WEATHER] Icon: %s (char %d) for condition: %s\n", getWeatherIconName(weatherIcon), (int)weatherIcon, mainDesc.c_str());
     } else if (countdownEnabled && !countdownFinished && ntpSyncSuccessful && countdownTargetTimestamp > 0 && countdownTargetTimestamp > time(nullptr)) {
       displayMode = 3;
@@ -2026,7 +2032,7 @@ void loop() {
       String weatherDisplay;
 
       // Get weather icon based on condition
-      char weatherIcon = getWeatherIcon(mainDesc);
+      char weatherIcon = getWeatherIcon(mainDesc, detailedDesc);
 
       if (showHumidity && currentHumidity != -1) {
         int cappedHumidity = (currentHumidity > 99) ? 99 : currentHumidity;
