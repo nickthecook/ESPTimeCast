@@ -1071,6 +1071,31 @@ void handleCaptivePortal(AsyncWebServerRequest *request) {
   request->redirect(String("http://") + WiFi.softAPIP().toString() + "/");
 }
 
+char getWeatherIcon(String weatherMain) {
+  // Map OpenWeatherMap "main" conditions to font icons (characters 161-168)
+  weatherMain.toLowerCase();
+
+  if (weatherMain == "clear") {
+    return (char)161;  // Clear/Sunny
+  } else if (weatherMain == "clouds") {
+    return (char)162;  // Clouds
+  } else if (weatherMain == "rain") {
+    return (char)163;  // Rain
+  } else if (weatherMain == "thunderstorm") {
+    return (char)164;  // Thunderstorm
+  } else if (weatherMain == "snow") {
+    return (char)165;  // Snow
+  } else if (weatherMain == "drizzle") {
+    return (char)166;  // Drizzle
+  } else if (weatherMain == "mist" || weatherMain == "fog") {
+    return (char)167;  // Mist/Fog
+  } else if (weatherMain == "smoke" || weatherMain == "haze" || weatherMain == "dust" || weatherMain == "sand" || weatherMain == "ash" || weatherMain == "squall" || weatherMain == "tornado") {
+    return (char)168;  // Haze/Other
+  } else {
+    return (char)162;  // Default to clouds
+  }
+}
+
 String normalizeWeatherDescription(String str) {
   // Serbian Cyrillic → Latin
   str.replace("а", "a");
@@ -1435,6 +1460,18 @@ void advanceDisplayMode() {
     } else if (weatherAvailable && (strlen(openWeatherApiKey) == 32) && (strlen(openWeatherCity) > 0) && (strlen(openWeatherCountry) > 0)) {
       displayMode = 1;
       Serial.println(F("[DISPLAY] Switching to display mode: WEATHER (from Clock)"));
+      // Log which weather icon will be displayed
+      char weatherIcon = getWeatherIcon(mainDesc);
+      String iconName = "";
+      if (weatherIcon == (char)161) iconName = "Clear/Sunny";
+      else if (weatherIcon == (char)162) iconName = "Clouds";
+      else if (weatherIcon == (char)163) iconName = "Rain";
+      else if (weatherIcon == (char)164) iconName = "Thunderstorm";
+      else if (weatherIcon == (char)165) iconName = "Snow";
+      else if (weatherIcon == (char)166) iconName = "Drizzle";
+      else if (weatherIcon == (char)167) iconName = "Mist/Fog";
+      else if (weatherIcon == (char)168) iconName = "Haze/Other";
+      Serial.printf("[WEATHER] Icon: %s (char %d) for condition: %s\n", iconName.c_str(), (int)weatherIcon, mainDesc.c_str());
     } else if (countdownEnabled && !countdownFinished && ntpSyncSuccessful && countdownTargetTimestamp > 0 && countdownTargetTimestamp > time(nullptr)) {
       displayMode = 3;
       Serial.println(F("[DISPLAY] Switching to display mode: COUNTDOWN (from Clock, weather skipped)"));
@@ -1449,6 +1486,18 @@ void advanceDisplayMode() {
     if (weatherAvailable && (strlen(openWeatherApiKey) == 32) && (strlen(openWeatherCity) > 0) && (strlen(openWeatherCountry) > 0)) {
       displayMode = 1;
       Serial.println(F("[DISPLAY] Switching to display mode: WEATHER (from Date)"));
+      // Log which weather icon will be displayed
+      char weatherIcon = getWeatherIcon(mainDesc);
+      String iconName = "";
+      if (weatherIcon == (char)161) iconName = "Clear/Sunny";
+      else if (weatherIcon == (char)162) iconName = "Clouds";
+      else if (weatherIcon == (char)163) iconName = "Rain";
+      else if (weatherIcon == (char)164) iconName = "Thunderstorm";
+      else if (weatherIcon == (char)165) iconName = "Snow";
+      else if (weatherIcon == (char)166) iconName = "Drizzle";
+      else if (weatherIcon == (char)167) iconName = "Mist/Fog";
+      else if (weatherIcon == (char)168) iconName = "Haze/Other";
+      Serial.printf("[WEATHER] Icon: %s (char %d) for condition: %s\n", iconName.c_str(), (int)weatherIcon, mainDesc.c_str());
     } else if (countdownEnabled && !countdownFinished && ntpSyncSuccessful && countdownTargetTimestamp > 0 && countdownTargetTimestamp > time(nullptr)) {
       displayMode = 3;
       Serial.println(F("[DISPLAY] Switching to display mode: COUNTDOWN (from Date, weather skipped)"));
@@ -1968,11 +2017,15 @@ void loop() {
     P.setCharSpacing(1);
     if (weatherAvailable) {
       String weatherDisplay;
+
+      // Get weather icon based on condition
+      char weatherIcon = getWeatherIcon(mainDesc);
+
       if (showHumidity && currentHumidity != -1) {
         int cappedHumidity = (currentHumidity > 99) ? 99 : currentHumidity;
-        weatherDisplay = currentTemp + " " + String(cappedHumidity) + "%";
+        weatherDisplay = String(weatherIcon) + " " + currentTemp + " " + String(cappedHumidity) + "%";
       } else {
-        weatherDisplay = currentTemp + tempSymbol;
+        weatherDisplay = String(weatherIcon) + " " + currentTemp + tempSymbol;
       }
       P.print(weatherDisplay.c_str());
       weatherWasAvailable = true;
