@@ -114,6 +114,21 @@ bool isAPMode = false;
 char tempSymbol = '[';
 bool shouldFetchWeatherNow = false;
 
+// 5-day forecast data storage
+struct ForecastEntry {
+  unsigned long timestamp;
+  String mainDesc;
+  String detailedDesc;
+  float temp;
+  int humidity;
+};
+const int MAX_FORECAST_ENTRIES = 3;   // Only store next 9 hours (3 x 3-hour intervals)
+ForecastEntry forecastData[MAX_FORECAST_ENTRIES];
+int forecastCount = 0;
+bool forecastAvailable = false;
+bool forecastFetched = false;
+bool forecastFetchInitiated = false;
+
 unsigned long lastSwitch = 0;
 unsigned long lastColonBlink = 0;
 int displayMode = 0;  // 0: Clock, 1: Weather, 2: Weather Description, 3: Countdown
@@ -1417,6 +1432,230 @@ void fetchWeather() {
   http.end();
 }
 
+String buildForecastURL() {
+  String base = "https://api.openweathermap.org/data/2.5/forecast?";
+
+  float lat = atof(openWeatherCity);
+  float lon = atof(openWeatherCountry);
+
+  bool latValid = isNumber(openWeatherCity) && isNumber(openWeatherCountry) && lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0;
+
+  if (latValid) {
+    base += "lat=" + String(lat, 8) + "&lon=" + String(lon, 8);
+  } else if (isFiveDigitZip(openWeatherCity) && String(openWeatherCountry).equalsIgnoreCase("US")) {
+    base += "zip=" + String(openWeatherCity) + "," + String(openWeatherCountry);
+  } else {
+    base += "q=" + String(openWeatherCity) + "," + String(openWeatherCountry);
+  }
+
+  base += "&appid=" + String(openWeatherApiKey);
+  base += "&units=" + String(weatherUnits);
+  base += "&cnt=3";  // Limit to first 3 forecast entries (9 hours)
+
+  String langForAPI = String(language);
+
+  if (langForAPI == "eo" || langForAPI == "ga" || langForAPI == "sw" || langForAPI == "ja") {
+    langForAPI = "en";
+  }
+  base += "&lang=" + langForAPI;
+
+  return base;
+}
+
+void fetchWeatherForecast() {
+  Serial.println(F("[FORECAST] Fetching 5-day forecast data..."));
+  Serial.printf("[FORECAST] Free heap before request: %d bytes\n", ESP.getFreeHeap());
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println(F("[FORECAST] Skipped: WiFi not connected"));
+    forecastAvailable = false;
+    forecastFetched = false;
+    return;
+  }
+  if (!openWeatherApiKey || strlen(openWeatherApiKey) != 32) {
+    Serial.println(F("[FORECAST] Skipped: Invalid API key (must be exactly 32 characters)"));
+    forecastAvailable = false;
+    forecastFetched = false;
+    return;
+  }
+  if (!(strlen(openWeatherCity) > 0 && strlen(openWeatherCountry) > 0)) {
+    Serial.println(F("[FORECAST] Skipped: City or Country is empty."));
+    forecastAvailable = false;
+    return;
+  }
+
+  Serial.println(F("[FORECAST] Connecting to OpenWeatherMap forecast API..."));
+  String url = buildForecastURL();
+  Serial.println(F("[FORECAST] URL: ") + url);
+  Serial.printf("[FORECAST] Free heap before HTTP setup: %d bytes\n", ESP.getFreeHeap());
+
+  WiFiClientSecure client;
+  client.stop();
+  client.setInsecure();
+  HTTPClient http;
+  http.begin(client, url);
+  client.setBufferSizes(1024, 1024);  // Larger buffers for forecast data
+  http.setTimeout(15000);  // Longer timeout for larger forecast response
+
+  Serial.println(F("[FORECAST] Sending GET request..."));
+  int httpCode = http.GET();
+
+  if (httpCode == HTTP_CODE_OK) {
+    Serial.println(F("[FORECAST] HTTP 200 OK. Reading payload..."));
+    Serial.printf("[FORECAST] Free heap before getString(): %d bytes\n", ESP.getFreeHeap());
+
+    String payload = http.getString();
+    Serial.println(F("[FORECAST] Response received."));
+    Serial.printf("[FORECAST] Payload length: %d\n", payload.length());
+    Serial.printf("[FORECAST] Free heap after getString(): %d bytes\n", ESP.getFreeHeap());
+
+    if (payload.length() == 0) {
+      Serial.println(F("[FORECAST] Empty payload received"));
+      forecastAvailable = false;
+      forecastFetched = false;
+      http.end();
+      return;
+    }
+
+    // Validate we have a valid JSON structure (starts with { and contains "list")
+    if (!payload.startsWith("{") || payload.indexOf("\"list\"") == -1) {
+      Serial.println(F("[FORECAST] Invalid JSON structure in payload"));
+      Serial.printf("[FORECAST] Payload starts with: %s\n", payload.substring(0, 50).c_str());
+      forecastAvailable = false;
+      forecastFetched = false;
+      http.end();
+      return;
+    }
+
+    // Show first 200 characters of payload for debugging
+    Serial.println(F("[FORECAST] First 200 chars: ") + payload.substring(0, min(200, (int)payload.length())));
+
+    // Fix incomplete JSON by ensuring proper closing
+    if (!payload.endsWith("]]}")) {
+      // Find the last complete entry by looking for complete dt_txt field
+      int lastDtTxt = payload.lastIndexOf("\"dt_txt\":");
+      if (lastDtTxt > 0) {
+        // Find the closing of this entry (should end with "}," or "}")
+        int entryEnd = payload.indexOf("}", lastDtTxt);
+        if (entryEnd > 0) {
+          // Truncate to include this complete entry and add proper closing
+          payload = payload.substring(0, entryEnd + 1) + "]}";
+          Serial.printf("[FORECAST] Fixed JSON structure at dt_txt, new length: %d\n", payload.length());
+        } else {
+          Serial.println(F("[FORECAST] Could not find entry end"));
+          forecastAvailable = false;
+          forecastFetched = false;
+          http.end();
+          return;
+        }
+      } else {
+        Serial.println(F("[FORECAST] Could not find dt_txt for repair"));
+        forecastAvailable = false;
+        forecastFetched = false;
+        http.end();
+        return;
+      }
+    }
+
+    // Check if we have enough memory for JSON parsing
+    size_t requiredMemory = payload.length() * 2;  // Estimate: payload size * 2 for parsing
+    if (ESP.getFreeHeap() < requiredMemory + 2000) {  // Leave 2KB headroom
+      Serial.printf("[FORECAST] Insufficient memory. Need ~%d bytes, have %d\n", requiredMemory + 2000, ESP.getFreeHeap());
+      forecastAvailable = false;
+      forecastFetched = false;
+      http.end();
+      return;
+    }
+
+    // Final validation - ensure JSON has proper structure
+    int openBraces = 0, closeBraces = 0;
+    for (int i = 0; i < payload.length(); i++) {
+      if (payload[i] == '{') openBraces++;
+      if (payload[i] == '}') closeBraces++;
+    }
+
+    if (openBraces != closeBraces) {
+      Serial.printf("[FORECAST] JSON brace mismatch: %d open, %d close\n", openBraces, closeBraces);
+      forecastAvailable = false;
+      forecastFetched = false;
+      http.end();
+      return;
+    }
+
+    // Parse the forecast JSON response (reduced buffer since we only need first 3 entries)
+    DynamicJsonDocument doc(6144);   // Smaller buffer - we only process first 3 entries
+    DeserializationError error = deserializeJson(doc, payload);
+
+    if (error) {
+      Serial.print(F("[FORECAST] JSON parse error: "));
+      Serial.println(error.f_str());
+      Serial.printf("[FORECAST] Payload was: %s\n", payload.c_str());
+      forecastAvailable = false;
+      forecastFetched = false;
+      http.end();
+      return;
+    }
+
+    // Reset forecast data
+    forecastCount = 0;
+
+    if (doc.containsKey(F("list")) && doc[F("list")].is<JsonArray>()) {
+      JsonArray forecastList = doc[F("list")];
+
+      Serial.printf("[FORECAST] Processing %d entries from list of %d\n", MAX_FORECAST_ENTRIES, forecastList.size());
+      for (int i = 0; i < forecastList.size() && forecastCount < MAX_FORECAST_ENTRIES; i++) {
+        JsonObject entry = forecastList[i];
+
+        // Extract timestamp
+        if (entry.containsKey(F("dt"))) {
+          forecastData[forecastCount].timestamp = entry[F("dt")].as<unsigned long>();
+        }
+
+        // Extract temperature
+        if (entry.containsKey(F("main")) && entry[F("main")].containsKey(F("temp"))) {
+          forecastData[forecastCount].temp = entry[F("main")][F("temp")];
+        }
+
+        // Extract humidity
+        if (entry.containsKey(F("main")) && entry[F("main")].containsKey(F("humidity"))) {
+          forecastData[forecastCount].humidity = entry[F("main")][F("humidity")];
+        } else {
+          forecastData[forecastCount].humidity = -1;
+        }
+
+        // Extract weather descriptions
+        if (entry.containsKey(F("weather")) && entry[F("weather")].is<JsonArray>()) {
+          JsonObject weatherObj = entry[F("weather")][0];
+          if (weatherObj.containsKey(F("main"))) {
+            forecastData[forecastCount].mainDesc = weatherObj[F("main")].as<String>();
+          }
+          if (weatherObj.containsKey(F("description"))) {
+            forecastData[forecastCount].detailedDesc = weatherObj[F("description")].as<String>();
+          }
+        }
+
+        forecastCount++;
+      }
+
+      Serial.printf("[FORECAST] Parsed %d forecast entries\n", forecastCount);
+      forecastAvailable = true;
+      forecastFetched = true;
+
+    } else {
+      Serial.println(F("[FORECAST] No forecast list found in JSON payload"));
+      forecastAvailable = false;
+      forecastFetched = false;
+    }
+
+  } else {
+    Serial.printf("[FORECAST] HTTP GET failed, error code: %d, reason: %s\n", httpCode, http.errorToString(httpCode).c_str());
+    forecastAvailable = false;
+    forecastFetched = false;
+  }
+
+  http.end();
+}
+
 
 
 // -----------------------------------------------------------------------------
@@ -1657,7 +1896,9 @@ void loop() {
   static bool tzSetAfterSync = false;
 
   static unsigned long lastFetch = 0;
+  static unsigned long lastForecastFetch = 0;
   const unsigned long fetchInterval = 300000;  // 5 minutes
+  const unsigned long forecastFetchInterval = 600000;  // 10 minutes (longer interval for forecast)
 
 
 
@@ -1877,9 +2118,25 @@ void loop() {
       fetchWeather();
       lastFetch = millis();
     }
+
+    // Separate forecast fetching logic with different timing
+    if (!forecastFetchInitiated || shouldFetchWeatherNow || (millis() - lastForecastFetch > forecastFetchInterval)) {
+      if (shouldFetchWeatherNow) {
+        Serial.println(F("[LOOP] Immediate forecast fetch requested by web server."));
+      } else if (!forecastFetchInitiated) {
+        Serial.println(F("[LOOP] Initial forecast fetch."));
+      } else {
+        Serial.println(F("[LOOP] Regular interval forecast fetch."));
+      }
+      forecastFetchInitiated = true;
+      forecastFetched = false;
+      fetchWeatherForecast();
+      lastForecastFetch = millis();
+    }
   } else {
     weatherFetchInitiated = false;
     shouldFetchWeatherNow = false;
+    forecastFetchInitiated = false;
   }
 
 
