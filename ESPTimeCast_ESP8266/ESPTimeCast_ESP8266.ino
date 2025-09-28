@@ -40,6 +40,7 @@ char openWeatherCountry[64] = "";
 char weatherUnits[12] = "metric";
 char timeZone[64] = "";
 char language[8] = "en";
+char adminPassword[64] = "";
 String mainDesc = "";
 String detailedDesc = "";
 
@@ -200,6 +201,7 @@ void loadConfig() {
     doc[F("dimEndMinute")] = dimEndMinute;
     doc[F("dimBrightness")] = dimBrightness;
     doc[F("showWeatherDescription")] = showWeatherDescription;
+    doc[F("adminPassword")] = adminPassword;
 
     // Add countdown defaults when creating a new config.json
     JsonObject countdownObj = doc.createNestedObject("countdown");
@@ -259,6 +261,7 @@ void loadConfig() {
   showHumidity = doc["showHumidity"] | false;
   colonBlinkEnabled = doc.containsKey("colonBlinkEnabled") ? doc["colonBlinkEnabled"].as<bool>() : true;
   showWeatherDescription = doc["showWeatherDescription"] | false;
+  strlcpy(adminPassword, doc["adminPassword"] | "", sizeof(adminPassword));
 
   String de = doc["dimmingEnabled"].as<String>();
   dimmingEnabled = (de == "true" || de == "on" || de == "1");
@@ -571,16 +574,31 @@ void printConfigToSerial() {
 // -----------------------------------------------------------------------------
 void handleCaptivePortal(AsyncWebServerRequest *request);
 
+bool checkAuth(AsyncWebServerRequest *request) {
+  // If no password is set, allow access (optional authentication)
+  if (strlen(adminPassword) == 0) {
+    return true;
+  }
+
+  if (!request->authenticate("admin", adminPassword)) {
+    request->requestAuthentication();
+    return false;
+  }
+  return true;
+}
+
 void setupWebServer() {
   Serial.println(F("[WEBSERVER] Setting up web server..."));
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
     Serial.println(F("[WEBSERVER] Request: /"));
+    if (!checkAuth(request)) return;
     request->send(LittleFS, "/index.html", "text/html");
   });
 
   server.on("/config.json", HTTP_GET, [](AsyncWebServerRequest *request) {
     Serial.println(F("[WEBSERVER] Request: /config.json"));
+    if (!checkAuth(request)) return;
     File f = LittleFS.open("/config.json", "r");
     if (!f) {
       Serial.println(F("[WEBSERVER] Error opening /config.json"));
@@ -609,6 +627,7 @@ void setupWebServer() {
 
   server.on("/save", HTTP_POST, [](AsyncWebServerRequest *request) {
     Serial.println(F("[WEBSERVER] Request: /save"));
+    if (!checkAuth(request)) return;
     DynamicJsonDocument doc(2048);
 
     File configFile = LittleFS.open("/config.json", "r");
@@ -770,6 +789,7 @@ void setupWebServer() {
 
   server.on("/restore", HTTP_POST, [](AsyncWebServerRequest *request) {
     Serial.println(F("[WEBSERVER] Request: /restore"));
+    if (!checkAuth(request)) return;
     if (LittleFS.exists("/config.bak")) {
       File src = LittleFS.open("/config.bak", "r");
       if (!src) {
@@ -821,6 +841,7 @@ void setupWebServer() {
 
   server.on("/clear_wifi", HTTP_POST, [](AsyncWebServerRequest *request) {
     Serial.println(F("[WEBSERVER] Request: /clear_wifi"));
+    if (!checkAuth(request)) return;
     clearWiFiCredentialsInConfig();
 
     DynamicJsonDocument okDoc(128);
@@ -846,6 +867,7 @@ void setupWebServer() {
   });
 
   server.on("/set_brightness", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (!checkAuth(request)) return;
     if (!request->hasParam("value", true)) {
       request->send(400, "application/json", "{\"error\":\"Missing value\"}");
       return;
@@ -885,6 +907,7 @@ void setupWebServer() {
   });
 
   server.on("/set_flip", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (!checkAuth(request)) return;
     bool flip = false;
     if (request->hasParam("value", true)) {
       String v = request->getParam("value", true)->value();
@@ -898,6 +921,7 @@ void setupWebServer() {
   });
 
   server.on("/set_twelvehour", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (!checkAuth(request)) return;
     bool twelveHour = false;
     if (request->hasParam("value", true)) {
       String v = request->getParam("value", true)->value();
@@ -909,6 +933,7 @@ void setupWebServer() {
   });
 
   server.on("/set_dayofweek", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (!checkAuth(request)) return;
     bool showDay = false;
     if (request->hasParam("value", true)) {
       String v = request->getParam("value", true)->value();
@@ -920,6 +945,7 @@ void setupWebServer() {
   });
 
   server.on("/set_showdate", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (!checkAuth(request)) return;
     bool showDateVal = false;
     if (request->hasParam("value", true)) {
       String v = request->getParam("value", true)->value();
@@ -931,6 +957,7 @@ void setupWebServer() {
   });
 
   server.on("/set_humidity", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (!checkAuth(request)) return;
     bool showHumidityNow = false;
     if (request->hasParam("value", true)) {
       String v = request->getParam("value", true)->value();
@@ -942,6 +969,7 @@ void setupWebServer() {
   });
 
   server.on("/set_colon_blink", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (!checkAuth(request)) return;
     bool enableBlink = false;
     if (request->hasParam("value", true)) {
       String v = request->getParam("value", true)->value();
@@ -953,6 +981,7 @@ void setupWebServer() {
   });
 
   server.on("/set_language", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (!checkAuth(request)) return;
     if (!request->hasParam("value", true)) {
       request->send(400, "application/json", "{\"error\":\"Missing value\"}");
       return;
@@ -972,6 +1001,7 @@ void setupWebServer() {
 
 
   server.on("/set_weatherdesc", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (!checkAuth(request)) return;
     bool showDesc = false;
     if (request->hasParam("value", true)) {
       String v = request->getParam("value", true)->value();
@@ -992,6 +1022,7 @@ void setupWebServer() {
   });
 
   server.on("/set_units", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (!checkAuth(request)) return;
     if (request->hasParam("value", true)) {
       String v = request->getParam("value", true)->value();
       if (v == "1" || v == "true" || v == "on") {
@@ -1010,6 +1041,7 @@ void setupWebServer() {
   });
 
   server.on("/set_countdown_enabled", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (!checkAuth(request)) return;
     bool enableCountdownNow = false;
     if (request->hasParam("value", true)) {
       String v = request->getParam("value", true)->value();
@@ -1036,6 +1068,7 @@ void setupWebServer() {
   });
 
   server.on("/set_dramatic_countdown", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (!checkAuth(request)) return;
     bool enableDramaticNow = false;
     if (request->hasParam("value", true)) {
       String v = request->getParam("value", true)->value();
@@ -1060,6 +1093,81 @@ void setupWebServer() {
     request->send(200, "application/json", "{\"ok\":true}");
   });
 
+  server.on("/change_password", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (!checkAuth(request)) return;
+    if (!request->hasParam("newPassword", true)) {
+      request->send(400, "application/json", "{\"error\":\"Missing newPassword\"}");
+      return;
+    }
+    String newPassword = request->getParam("newPassword", true)->value();
+    if (newPassword.length() < 8 || newPassword.length() >= 64) {
+      request->send(400, "application/json", "{\"error\":\"Password must be 8-63 characters\"}");
+      return;
+    }
+    strncpy(adminPassword, newPassword.c_str(), sizeof(adminPassword) - 1);
+    adminPassword[sizeof(adminPassword) - 1] = '\0';
+    Serial.println(F("[WEBSERVER] Admin password changed"));
+    request->send(200, "application/json", "{\"ok\":true}");
+  });
+
+  server.on("/setup_password", HTTP_GET, [](AsyncWebServerRequest *request) {
+    if (strlen(adminPassword) > 0) {
+      request->send(200, "text/html",
+        "<html><head><title>ESPTimeCast - Authentication Status</title></head>"
+        "<body><h1>Authentication Enabled</h1>"
+        "<p>Password protection is currently active.</p>"
+        "<p>Use /change_password to update your password.</p>"
+        "<p><a href='/'>Return to main interface</a></p></body></html>");
+      return;
+    }
+
+    request->send(200, "text/html",
+      "<html><head><title>ESPTimeCast - Enable Authentication</title></head>"
+      "<body><h1>Enable Password Protection</h1>"
+      "<p>Authentication is currently <strong>disabled</strong>. Anyone can access this device.</p>"
+      "<p>To enable password protection, set an admin password (8-63 characters):</p>"
+      "<form method='POST' action='/setup_password'>"
+      "<input type='password' name='newPassword' placeholder='Enter new password' required minlength='8' maxlength='63'><br><br>"
+      "<input type='submit' value='Enable Authentication'>"
+      "</form>"
+      "<p><a href='/'>Continue without authentication</a></p></body></html>");
+  });
+
+  server.on("/setup_password", HTTP_POST, [](AsyncWebServerRequest *request) {
+    // Allow enabling authentication even if password exists (overwrites it)
+    // This makes it more flexible for users
+
+    if (!request->hasParam("newPassword", true)) {
+      request->send(400, "application/json", "{\"error\":\"Missing newPassword\"}");
+      return;
+    }
+
+    String newPassword = request->getParam("newPassword", true)->value();
+    if (newPassword.length() < 8 || newPassword.length() >= 64) {
+      request->send(400, "text/html",
+        "<html><body><h1>Error</h1><p>Password must be 8-63 characters. <a href='/setup_password'>Try again</a></p></body></html>");
+      return;
+    }
+
+    strncpy(adminPassword, newPassword.c_str(), sizeof(adminPassword) - 1);
+    adminPassword[sizeof(adminPassword) - 1] = '\0';
+    Serial.println(F("[WEBSERVER] Admin authentication enabled"));
+
+    request->send(200, "text/html",
+      "<html><body><h1>Authentication Enabled</h1>"
+      "<p>Password protection is now active. You will need to authenticate to access the interface.</p>"
+      "<p><a href='/'>Continue to ESPTimeCast interface</a></p></body></html>");
+  });
+
+  server.on("/disable_auth", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (!checkAuth(request)) return;
+
+    // Clear the password to disable authentication
+    adminPassword[0] = '\0';
+    Serial.println(F("[WEBSERVER] Authentication disabled"));
+
+    request->send(200, "application/json", "{\"ok\":true,\"message\":\"Authentication disabled\"}");
+  });
 
   server.begin();
   Serial.println(F("[WEBSERVER] Web server started"));

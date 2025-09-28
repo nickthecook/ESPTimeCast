@@ -25,6 +25,7 @@
   "dimEndMinute": 0,
   "dimBrightness": 2,
   "showWeatherDescription": false,
+  "adminPassword": "",
   "countdown": {
     "enabled": false,
     "targetTimestamp": 0,
