@@ -1628,57 +1628,7 @@ void fetchWeatherForecast() {
     // Show first 200 characters of payload for debugging
     Serial.println(F("[FORECAST] First 200 chars: ") + payload.substring(0, min(200, (int)payload.length())));
 
-    // Fix incomplete JSON by ensuring proper closing
-    if (!payload.endsWith("]]}")) {
-      // Find the last complete entry by looking for complete dt_txt field
-      int lastDtTxt = payload.lastIndexOf("\"dt_txt\":");
-      if (lastDtTxt > 0) {
-        // Find the closing of this entry (should end with "}," or "}")
-        int entryEnd = payload.indexOf("}", lastDtTxt);
-        if (entryEnd > 0) {
-          // Truncate to include this complete entry and add proper closing
-          payload = payload.substring(0, entryEnd + 1) + "]}";
-          Serial.printf("[FORECAST] Fixed JSON structure at dt_txt, new length: %d\n", payload.length());
-        } else {
-          Serial.println(F("[FORECAST] Could not find entry end"));
-          forecastAvailable = false;
-          forecastFetched = false;
-          http.end();
-          return;
-        }
-      } else {
-        Serial.println(F("[FORECAST] Could not find dt_txt for repair"));
-        forecastAvailable = false;
-        forecastFetched = false;
-        http.end();
-        return;
-      }
-    }
-
-    // Check if we have enough memory for JSON parsing
-    size_t requiredMemory = payload.length() * 2;  // Estimate: payload size * 2 for parsing
-    if (ESP.getFreeHeap() < requiredMemory + 2000) {  // Leave 2KB headroom
-      Serial.printf("[FORECAST] Insufficient memory. Need ~%d bytes, have %d\n", requiredMemory + 2000, ESP.getFreeHeap());
-      forecastAvailable = false;
-      forecastFetched = false;
-      http.end();
-      return;
-    }
-
-    // Final validation - ensure JSON has proper structure
-    int openBraces = 0, closeBraces = 0;
-    for (int i = 0; i < payload.length(); i++) {
-      if (payload[i] == '{') openBraces++;
-      if (payload[i] == '}') closeBraces++;
-    }
-
-    if (openBraces != closeBraces) {
-      Serial.printf("[FORECAST] JSON brace mismatch: %d open, %d close\n", openBraces, closeBraces);
-      forecastAvailable = false;
-      forecastFetched = false;
-      http.end();
-      return;
-    }
+    // With cnt=3, we get a small, complete JSON response that fits easily in memory
 
     // Parse the forecast JSON response (reduced buffer since we only need first 3 entries)
     DynamicJsonDocument doc(6144);   // Smaller buffer - we only process first 3 entries
