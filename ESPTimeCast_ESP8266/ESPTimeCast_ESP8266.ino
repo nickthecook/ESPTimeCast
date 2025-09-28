@@ -107,6 +107,7 @@ DNSServer dnsServer;
 String currentTemp = "";
 String weatherDescription = "";
 bool showWeatherDescription = false;
+bool useForecastWeather = false;  // Use forecast instead of current weather for display
 bool weatherAvailable = false;
 bool weatherFetched = false;
 bool weatherFetchInitiated = false;
@@ -235,6 +236,7 @@ void loadConfig() {
     doc[F("showDayOfWeek")] = showDayOfWeek;
     doc[F("showDate")] = false;
     doc[F("showHumidity")] = showHumidity;
+    doc[F("useForecastWeather")] = useForecastWeather;
     doc[F("colonBlinkEnabled")] = colonBlinkEnabled;
     doc[F("ntpServer1")] = ntpServer1;
     doc[F("ntpServer2")] = ntpServer2;
@@ -302,6 +304,7 @@ void loadConfig() {
   showDayOfWeek = doc["showDayOfWeek"] | true;
   showDate = doc["showDate"] | false;
   showHumidity = doc["showHumidity"] | false;
+  useForecastWeather = doc["useForecastWeather"] | false;
   colonBlinkEnabled = doc.containsKey("colonBlinkEnabled") ? doc["colonBlinkEnabled"].as<bool>() : true;
   showWeatherDescription = doc["showWeatherDescription"] | false;
 
@@ -682,6 +685,7 @@ void setupWebServer() {
       else if (n == "showDayOfWeek") doc[n] = (v == "true" || v == "on" || v == "1");
       else if (n == "showDate") doc[n] = (v == "true" || v == "on" || v == "1");
       else if (n == "showHumidity") doc[n] = (v == "true" || v == "on" || v == "1");
+      else if (n == "useForecastWeather") doc[n] = (v == "true" || v == "on" || v == "1");
       else if (n == "colonBlinkEnabled") doc[n] = (v == "true" || v == "on" || v == "1");
       else if (n == "dimStartHour") doc[n] = v.toInt();
       else if (n == "dimStartMinute") doc[n] = v.toInt();
@@ -983,6 +987,21 @@ void setupWebServer() {
     }
     showHumidity = showHumidityNow;
     Serial.printf("[WEBSERVER] Set showHumidity to %d\n", showHumidity);
+    request->send(200, "application/json", "{\"ok\":true}");
+  });
+
+  server.on("/set_forecast_weather", HTTP_POST, [](AsyncWebServerRequest *request) {
+    bool useForecast = false;
+    if (request->hasParam("value", true)) {
+      String v = request->getParam("value", true)->value();
+      useForecast = (v == "1" || v == "true" || v == "on");
+    }
+    useForecastWeather = useForecast;
+    Serial.printf("[WEBSERVER] Set Use Forecast Weather to %d\n", useForecastWeather);
+
+    // Invalidate extreme weather cache since display preference changed
+    extremeWeatherCacheValid = false;
+
     request->send(200, "application/json", "{\"ok\":true}");
   });
 
@@ -1514,8 +1533,15 @@ void fetchWeather() {
       Serial.println(F("[WEATHER] Weather description not found in JSON payload"));
     }
 
-    weatherDescription = normalizeWeatherDescription(detailedDesc);
-    Serial.printf("[WEATHER] Description used: %s\n", weatherDescription.c_str());
+    if (useForecastWeather) {
+      String extremeMain, extremeDetailed;
+      getMostExtremeWeather(extremeMain, extremeDetailed);
+      weatherDescription = normalizeWeatherDescription(extremeDetailed);
+      Serial.printf("[WEATHER] Using forecast description: %s\n", weatherDescription.c_str());
+    } else {
+      weatherDescription = normalizeWeatherDescription(detailedDesc);
+      Serial.printf("[WEATHER] Using current description: %s\n", weatherDescription.c_str());
+    }
     weatherFetched = true;
 
     // Invalidate extreme weather cache since we have new current weather data
@@ -1781,11 +1807,24 @@ void advanceDisplayMode() {
     } else if (weatherAvailable && (strlen(openWeatherApiKey) == 32) && (strlen(openWeatherCity) > 0) && (strlen(openWeatherCountry) > 0)) {
       displayMode = 1;
       Serial.println(F("[DISPLAY] Switching to display mode: WEATHER (from Clock)"));
-      // Log which weather icon will be displayed (based on most extreme condition)
-      String extremeMain, extremeDetailed;
-      getMostExtremeWeather(extremeMain, extremeDetailed);
-      char weatherIcon = getWeatherIcon(extremeMain, extremeDetailed);
-      Serial.printf("[WEATHER] Icon: %s (char %d) for most extreme condition: %s\n", getWeatherIconName(weatherIcon), (int)weatherIcon, extremeMain.c_str());
+      // Log which weather icon will be displayed
+      if (useForecastWeather) {
+        String extremeMain, extremeDetailed;
+        getMostExtremeWeather(extremeMain, extremeDetailed);
+        char weatherIcon = getWeatherIcon(extremeMain, extremeDetailed);
+        if (extremeDetailed == "few clouds" && extremeMain.equalsIgnoreCase("clouds")) {
+          Serial.printf("[WEATHER] Icon: %s (char %d) for most extreme condition: %s (%s) [special case: few clouds → clear]\n", getWeatherIconName(weatherIcon), (int)weatherIcon, extremeMain.c_str(), extremeDetailed.c_str());
+        } else {
+          Serial.printf("[WEATHER] Icon: %s (char %d) for most extreme condition: %s (%s)\n", getWeatherIconName(weatherIcon), (int)weatherIcon, extremeMain.c_str(), extremeDetailed.c_str());
+        }
+      } else {
+        char weatherIcon = getWeatherIcon(mainDesc, detailedDesc);
+        if (detailedDesc == "few clouds" && mainDesc.equalsIgnoreCase("clouds")) {
+          Serial.printf("[WEATHER] Icon: %s (char %d) for current condition: %s (%s) [special case: few clouds → clear]\n", getWeatherIconName(weatherIcon), (int)weatherIcon, mainDesc.c_str(), detailedDesc.c_str());
+        } else {
+          Serial.printf("[WEATHER] Icon: %s (char %d) for current condition: %s (%s)\n", getWeatherIconName(weatherIcon), (int)weatherIcon, mainDesc.c_str(), detailedDesc.c_str());
+        }
+      }
     } else if (countdownEnabled && !countdownFinished && ntpSyncSuccessful && countdownTargetTimestamp > 0 && countdownTargetTimestamp > time(nullptr)) {
       displayMode = 3;
       Serial.println(F("[DISPLAY] Switching to display mode: COUNTDOWN (from Clock, weather skipped)"));
@@ -1800,11 +1839,24 @@ void advanceDisplayMode() {
     if (weatherAvailable && (strlen(openWeatherApiKey) == 32) && (strlen(openWeatherCity) > 0) && (strlen(openWeatherCountry) > 0)) {
       displayMode = 1;
       Serial.println(F("[DISPLAY] Switching to display mode: WEATHER (from Date)"));
-      // Log which weather icon will be displayed (based on most extreme condition)
-      String extremeMain, extremeDetailed;
-      getMostExtremeWeather(extremeMain, extremeDetailed);
-      char weatherIcon = getWeatherIcon(extremeMain, extremeDetailed);
-      Serial.printf("[WEATHER] Icon: %s (char %d) for most extreme condition: %s\n", getWeatherIconName(weatherIcon), (int)weatherIcon, extremeMain.c_str());
+      // Log which weather icon will be displayed
+      if (useForecastWeather) {
+        String extremeMain, extremeDetailed;
+        getMostExtremeWeather(extremeMain, extremeDetailed);
+        char weatherIcon = getWeatherIcon(extremeMain, extremeDetailed);
+        if (extremeDetailed == "few clouds" && extremeMain.equalsIgnoreCase("clouds")) {
+          Serial.printf("[WEATHER] Icon: %s (char %d) for most extreme condition: %s (%s) [special case: few clouds → clear]\n", getWeatherIconName(weatherIcon), (int)weatherIcon, extremeMain.c_str(), extremeDetailed.c_str());
+        } else {
+          Serial.printf("[WEATHER] Icon: %s (char %d) for most extreme condition: %s (%s)\n", getWeatherIconName(weatherIcon), (int)weatherIcon, extremeMain.c_str(), extremeDetailed.c_str());
+        }
+      } else {
+        char weatherIcon = getWeatherIcon(mainDesc, detailedDesc);
+        if (detailedDesc == "few clouds" && mainDesc.equalsIgnoreCase("clouds")) {
+          Serial.printf("[WEATHER] Icon: %s (char %d) for current condition: %s (%s) [special case: few clouds → clear]\n", getWeatherIconName(weatherIcon), (int)weatherIcon, mainDesc.c_str(), detailedDesc.c_str());
+        } else {
+          Serial.printf("[WEATHER] Icon: %s (char %d) for current condition: %s (%s)\n", getWeatherIconName(weatherIcon), (int)weatherIcon, mainDesc.c_str(), detailedDesc.c_str());
+        }
+      }
     } else if (countdownEnabled && !countdownFinished && ntpSyncSuccessful && countdownTargetTimestamp > 0 && countdownTargetTimestamp > time(nullptr)) {
       displayMode = 3;
       Serial.println(F("[DISPLAY] Switching to display mode: COUNTDOWN (from Date, weather skipped)"));
@@ -2343,10 +2395,15 @@ void loop() {
     if (weatherAvailable) {
       String weatherDisplay;
 
-      // Get weather icon based on most extreme condition (current + forecast)
-      String extremeMain, extremeDetailed;
-      getMostExtremeWeather(extremeMain, extremeDetailed);
-      char weatherIcon = getWeatherIcon(extremeMain, extremeDetailed);
+      // Get weather icon based on user setting
+      char weatherIcon;
+      if (useForecastWeather) {
+        String extremeMain, extremeDetailed;
+        getMostExtremeWeather(extremeMain, extremeDetailed);
+        weatherIcon = getWeatherIcon(extremeMain, extremeDetailed);
+      } else {
+        weatherIcon = getWeatherIcon(mainDesc, detailedDesc);
+      }
 
       if (showHumidity && currentHumidity != -1) {
         int cappedHumidity = (currentHumidity > 99) ? 99 : currentHumidity;
