@@ -15,14 +15,14 @@ ASCII representations of the weather icons to put in `mfactoryfont.h`.
 
 ## Clear
 
-1   .  .  .  .  .  .
+1   .  .  o  .  .  .
 2   o  .  o  .  o  .
 4   .  o  o  o  .  .
-8   o  o  o  o  o  .
+8   o  o  o  o  o  o
 16  .  o  o  o  .  .
 32  o  .  o  .  o  .
-64  .  .  .  .  .  .
-   42 28 62 28 42
+64  .  .  o  .  .  .
+   42 28 127 28 42 8
 
 ## Rain
 
