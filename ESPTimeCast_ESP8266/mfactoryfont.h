@@ -1,7 +1,7 @@
 // Data file for user example user defined fonts
 #pragma once
 
-MD_MAX72XX::fontType_t mFactory[] PROGMEM = 
+MD_MAX72XX::fontType_t mFactory[] PROGMEM =
 {
 1, 0, 	// 0 - 'Empty Cell'
 	1, 0, 	// 1 - 'Sad Smiley'
@@ -164,9 +164,9 @@ MD_MAX72XX::fontType_t mFactory[] PROGMEM =
 	0, 	// 158 - 'ž'
 	0, 	// 159 - 'Ÿ'
 	0, 	// 160 - ''
-	5, 56, 68, 238, 68, 56, 	// 161 - Clear/Sunny
-	6, 60, 66, 153, 153, 66, 60, 	// 162 - Clouds
-	6, 60, 66, 189, 189, 66, 60, 	// 163 - Rain
+	5, 42, 28, 62, 28, 42, 	// 161 - Clear/Sunny
+	6, 16, 44, 34, 44, 36, 24, 	// 162 - Clouds
+	6, 112, 7, 224, 14, 192, 28, 	// 163 - Rain
 	7, 34, 85, 136, 85, 34, 0, 0, 	// 164 - Thunderstorm
 	6, 60, 66, 153, 165, 90, 60, 	// 165 - Snow
 	6, 60, 66, 153, 189, 102, 60, 	// 166 - Drizzle

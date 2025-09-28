@@ -31,6 +31,31 @@ AsyncWebServer server(80);
 const int GENERAL_SCROLL_SPEED = 85;  // Default: Adjust this for Weather Description and Countdown Label (e.g., 50 for faster, 200 for slower)
 const int IP_SCROLL_SPEED = 115;      // Default: Adjust this for the IP Address display (slower for readability)
 
+// --- Weather Icon Constants ---
+const char WEATHER_ICON_CLEAR = 161;
+const char WEATHER_ICON_CLOUDS = 162;
+const char WEATHER_ICON_RAIN = 163;
+const char WEATHER_ICON_THUNDERSTORM = 164;
+const char WEATHER_ICON_SNOW = 165;
+const char WEATHER_ICON_DRIZZLE = 166;
+const char WEATHER_ICON_MIST = 167;
+const char WEATHER_ICON_HAZE = 168;
+
+// Weather icon name mapping
+const char* getWeatherIconName(char iconChar) {
+  switch (iconChar) {
+    case WEATHER_ICON_CLEAR: return "Clear/Sunny";
+    case WEATHER_ICON_CLOUDS: return "Clouds";
+    case WEATHER_ICON_RAIN: return "Rain";
+    case WEATHER_ICON_THUNDERSTORM: return "Thunderstorm";
+    case WEATHER_ICON_SNOW: return "Snow";
+    case WEATHER_ICON_DRIZZLE: return "Drizzle";
+    case WEATHER_ICON_MIST: return "Mist/Fog";
+    case WEATHER_ICON_HAZE: return "Haze/Other";
+    default: return "Unknown";
+  }
+}
+
 // WiFi and configuration globals
 char ssid[32] = "";
 char password[64] = "";
@@ -113,7 +138,7 @@ const unsigned long ntpStatusPrintInterval = 1000;  // Print status every 1 seco
 // Non-blocking IP display globals
 bool showingIp = false;
 int ipDisplayCount = 0;
-const int ipDisplayMax = 2;  // As per working copy for how long IP shows
+const int ipDisplayMax = 1;  // As per working copy for how long IP shows
 String pendingIpToShow = "";
 
 // Countdown display state - NEW
@@ -599,7 +624,7 @@ void setupWebServer() {
 
     // Always sanitize before sending to browser
     doc[F("ssid")] = getSafeSsid();
-    doc[F("password")] = getSafePassword();  
+    doc[F("password")] = getSafePassword();
     doc[F("mode")] = isAPMode ? "ap" : "sta";
 
     String response;
@@ -1072,27 +1097,27 @@ void handleCaptivePortal(AsyncWebServerRequest *request) {
 }
 
 char getWeatherIcon(String weatherMain) {
-  // Map OpenWeatherMap "main" conditions to font icons (characters 161-168)
+  // Map OpenWeatherMap "main" conditions to font icons
   weatherMain.toLowerCase();
 
   if (weatherMain == "clear") {
-    return (char)161;  // Clear/Sunny
+    return WEATHER_ICON_CLEAR;
   } else if (weatherMain == "clouds") {
-    return (char)162;  // Clouds
+    return WEATHER_ICON_CLOUDS;
   } else if (weatherMain == "rain") {
-    return (char)163;  // Rain
+    return WEATHER_ICON_RAIN;
   } else if (weatherMain == "thunderstorm") {
-    return (char)164;  // Thunderstorm
+    return WEATHER_ICON_THUNDERSTORM;
   } else if (weatherMain == "snow") {
-    return (char)165;  // Snow
+    return WEATHER_ICON_SNOW;
   } else if (weatherMain == "drizzle") {
-    return (char)166;  // Drizzle
+    return WEATHER_ICON_DRIZZLE;
   } else if (weatherMain == "mist" || weatherMain == "fog") {
-    return (char)167;  // Mist/Fog
+    return WEATHER_ICON_MIST;
   } else if (weatherMain == "smoke" || weatherMain == "haze" || weatherMain == "dust" || weatherMain == "sand" || weatherMain == "ash" || weatherMain == "squall" || weatherMain == "tornado") {
-    return (char)168;  // Haze/Other
+    return WEATHER_ICON_HAZE;
   } else {
-    return (char)162;  // Default to clouds
+    return WEATHER_ICON_CLOUDS;  // Default to clouds
   }
 }
 
@@ -1462,16 +1487,7 @@ void advanceDisplayMode() {
       Serial.println(F("[DISPLAY] Switching to display mode: WEATHER (from Clock)"));
       // Log which weather icon will be displayed
       char weatherIcon = getWeatherIcon(mainDesc);
-      String iconName = "";
-      if (weatherIcon == (char)161) iconName = "Clear/Sunny";
-      else if (weatherIcon == (char)162) iconName = "Clouds";
-      else if (weatherIcon == (char)163) iconName = "Rain";
-      else if (weatherIcon == (char)164) iconName = "Thunderstorm";
-      else if (weatherIcon == (char)165) iconName = "Snow";
-      else if (weatherIcon == (char)166) iconName = "Drizzle";
-      else if (weatherIcon == (char)167) iconName = "Mist/Fog";
-      else if (weatherIcon == (char)168) iconName = "Haze/Other";
-      Serial.printf("[WEATHER] Icon: %s (char %d) for condition: %s\n", iconName.c_str(), (int)weatherIcon, mainDesc.c_str());
+      Serial.printf("[WEATHER] Icon: %s (char %d) for condition: %s\n", getWeatherIconName(weatherIcon), (int)weatherIcon, mainDesc.c_str());
     } else if (countdownEnabled && !countdownFinished && ntpSyncSuccessful && countdownTargetTimestamp > 0 && countdownTargetTimestamp > time(nullptr)) {
       displayMode = 3;
       Serial.println(F("[DISPLAY] Switching to display mode: COUNTDOWN (from Clock, weather skipped)"));
@@ -1488,16 +1504,7 @@ void advanceDisplayMode() {
       Serial.println(F("[DISPLAY] Switching to display mode: WEATHER (from Date)"));
       // Log which weather icon will be displayed
       char weatherIcon = getWeatherIcon(mainDesc);
-      String iconName = "";
-      if (weatherIcon == (char)161) iconName = "Clear/Sunny";
-      else if (weatherIcon == (char)162) iconName = "Clouds";
-      else if (weatherIcon == (char)163) iconName = "Rain";
-      else if (weatherIcon == (char)164) iconName = "Thunderstorm";
-      else if (weatherIcon == (char)165) iconName = "Snow";
-      else if (weatherIcon == (char)166) iconName = "Drizzle";
-      else if (weatherIcon == (char)167) iconName = "Mist/Fog";
-      else if (weatherIcon == (char)168) iconName = "Haze/Other";
-      Serial.printf("[WEATHER] Icon: %s (char %d) for condition: %s\n", iconName.c_str(), (int)weatherIcon, mainDesc.c_str());
+      Serial.printf("[WEATHER] Icon: %s (char %d) for condition: %s\n", getWeatherIconName(weatherIcon), (int)weatherIcon, mainDesc.c_str());
     } else if (countdownEnabled && !countdownFinished && ntpSyncSuccessful && countdownTargetTimestamp > 0 && countdownTargetTimestamp > time(nullptr)) {
       displayMode = 3;
       Serial.println(F("[DISPLAY] Switching to display mode: COUNTDOWN (from Date, weather skipped)"));
